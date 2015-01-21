@@ -144,7 +144,7 @@ class StumpusHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     self.wfile.write('Updated spark status.')
 
 
-def main(unused_argv):
+def main():
   httpd = BaseHTTPServer.HTTPServer(('', 8000), StumpusHandler)
   try:
     httpd.serve_forever()
@@ -152,6 +152,6 @@ def main(unused_argv):
     pass
   httpd.server_close()
 
-
-main(sys.argv)
+if __name__ == '__main__':
+  main()
 
