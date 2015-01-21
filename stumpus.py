@@ -22,13 +22,14 @@ USBRQ_HID_SET_REPORT = 0x09
 USB_HID_REPORT_TYPE_FEATURE = 0x03
 
 
-def AllSparks():
-  sparks = usb.core.find(idVendor=0x16c0, idProduct=0x05df, find_all=True)
-  print 'Found %d sparks.' % len(sparks)
-  return sparks
+class Spark(object):
 
+  @classmethod
+  def All(cls):
+    id_vendor, id_product = 0x16c0, 0x05df
+    return [cls(x) for x in usb.core.find(
+        idVendor=id_vendor, idProduct=id_product, find_all=True)]
 
-class Arduino(object):
   def __init__(self, device):
     self._device = device
 
@@ -47,11 +48,18 @@ class Arduino(object):
       request_type, request, (USB_HID_REPORT_TYPE_FEATURE << 8) | 0, index,
       value)
 
+  def __iter__(self):
+    while True:
+      try:
+        yield self.Read()
+      except:
+        return
 
-class Stumpus(Arduino):
+
+class Stumpus(object):
   def __init__(self, device, bad=False, good=False, neutral=False):
     self._bad, self._good, self._neutral = bad, good, neutral
-    super(Stumpus, self).__init__(device)
+    self._device = device
 
   @property
   def bad(self):
@@ -86,43 +94,54 @@ class Stumpus(Arduino):
     neutral = 'B' if self.neutral else ''
     status = '-%s%s%s' % (bad, good, neutral)
     for c in status:
-      self.Write(ord(c))
+      self._device.Write(ord(c))
 
 class StumpusHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
   def do_GET(self):
-    stumps = tuple(Stumpus(spark) for spark in AllSparks())
-    _, index_str, statuses_str = self.path.partition('?')[0].split('/')
-    i = int(index_str)
-    statuses = statuses_str.split(',')
-    try:
-      stump = stumps[i]
-    except IndexError:
+    stumps = tuple(Stumpus(spark) for spark in Spark.All())
+    request = self.path.partition('?')[0].split('/')
+    self.send_header('Content-type','text/html')
+    if len(request) != 3:
       self.send_response(404)
       self.end_headers()
-      raise
-    print 'Setting stump %d to %r.' % (i, statuses)
+      self.wfile.write('Example: http://stumpus/0/green')
+      return
+    _, indexes_str, statuses_str = request
 
-    for status in statuses:
-      if status == 'good' or status == 'green':
-        stump.good = True
-      elif status == 'bad' or status == 'red':
-        stump.bad = True
-      elif status == 'neutral' or status == 'blue':
-        stump.neutral = True
-      elif status == 'off':
-        stump.good = False
-        stump.bad = False
-        stump.neutral = False
-      else:
+    for i in indexes_str.split(','):
+      try:
+        stump = stumps[int(i)]
+      except IndexError:
+        self.send_response(404)
+        self.end_headers()
+        self.wfile.write('Spark not found.')
+        return
+      except ValueError:
         self.send_response(400)
         self.end_headers()
-        raise Exception
-
+        self.wfile.write('Example: http://stumpus/0/green')
+        return
+      for status in statuses_str.split(','):
+        if status == 'good' or status == 'green':
+          stump.good = True
+        elif status == 'bad' or status == 'red':
+          stump.bad = True
+        elif status == 'neutral' or status == 'blue':
+          stump.neutral = True
+        elif status == 'off':
+          stump.good = False
+          stump.bad = False
+          stump.neutral = False
+        else:
+          self.send_response(400)
+          self.end_headers()
+          self.wfile.write('Bad status string `%s`.' % status)
+          return
 
     self.send_response(200)
     self.end_headers()
-
+    self.wfile.write('Updated spark status.')
 
 
 def main(unused_argv):
